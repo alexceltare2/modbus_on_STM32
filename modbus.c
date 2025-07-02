@@ -1,19 +1,22 @@
 /**
 Modbus slave implementation for STM32 HAL under FreeRTOS.
 (c) 2017 Viacheslav Kaloshin, multik@multik.org
+(c) 2025 Alex, alexceltare2@yahoo.com
 Licensed under LGPL. 
 **/
-
+#include <stdbool.h>
 #include "FreeRTOS.h"
 #include "cmsis_os.h"
 #include "modbus.h"
+#include "main.h"
+
 
 // If you want directly send to usb-cdc
 // #include "usbd_cdc_if.h"
 
-osMessageQId ModBusInHandle;
-osMessageQId ModBusOutHandle;
-osThreadId ModBusTaskHandle;
+osMessageQueueId_t ModBusInHandle;
+//osMessageQId ModBusOutHandle;
+
 
 uint16_t mb_reg[ModBusRegisters];
 
@@ -24,48 +27,71 @@ uint8_t mb_addr;
 uint8_t mb_buf_out[256];
 uint8_t mb_buf_out_count;
 
+//You define them in main.h and main.c
+extern uint8_t rxData;
+extern UART_HandleTypeDef ACTIVE_UART_HANDLE;
+
 void ModBusParse(void);
 
-void ModBusTask(void const * argument)
+
+void ModBusTask(void *argument)
 {
-  for(;;)
-  {
-    osEvent evt = osMessageGet(ModBusInHandle,ModBus35);
-    // Frame end?
-    if (evt.status == osEventTimeout)
-      {
-        if(mb_buf_in_count > 0) // ok, something in buffer exist, lets parse it
+    uint8_t byte;
+    osStatus_t status;
+    uint32_t ticks;
+
+    for (;;)
+    {
+        // Wait for a message with timeout
+        ticks = osKernelGetTickFreq() * ModBus35 / 1000; // Convert ModBus35 ms to ticks
+        status = osMessageQueueGet(ModBusInHandle, &byte, NULL, ticks);
+
+        if (status == osOK)
         {
-          ModBusParse();
-        }  
-      mb_buf_in_count=0;
-      }
-    // Wow, something come!
-    if (evt.status == osEventMessage)
-      {
-        uint8_t byte = (uint8_t) evt.value.v;
-        // buffer has space for incoming?
-        if(mb_buf_in_count<254)
-        {
-          mb_buf_in[mb_buf_in_count]=byte;
-          mb_buf_in_count=mb_buf_in_count+1; // prevent opt/war on come compilers
+            // Message received
+            if (mb_buf_in_count < 254)
+            {
+                mb_buf_in[mb_buf_in_count++] = byte;
+            }
+            else
+            {
+                // Buffer overflow, discard frame
+                mb_buf_in_count = 0;
+            }
         }
-        else // oops, bad frame, by standard we should drop it and no answer
+        else if (status == osErrorTimeout)
         {
-          mb_buf_in_count=0;
+            // Timeout occurred, check if we have a frame to parse
+            if (mb_buf_in_count > 0)
+            {
+                ModBusParse();
+                mb_buf_in_count = 0;
+            }
         }
-      }
-  }
+    }
 }
+
+
 
 void ModBus_Init(void)
 {
-  osMessageQDef(ModBusIn, 256, uint8_t);
-  ModBusInHandle = osMessageCreate(osMessageQ(ModBusIn), NULL);
-  osMessageQDef(ModBusOut, 256, uint8_t);
-  ModBusOutHandle = osMessageCreate(osMessageQ(ModBusOut), NULL);
-  osThreadDef(ModBusTask, ModBusTask, osPriorityNormal, 0, 128);
-  ModBusTaskHandle = osThreadCreate(osThread(ModBusTask), NULL);
+//	 osMessageQDef(ModBusIn, 256, uint8_t);
+//	 ModBusInHandle = osMessageCreate(osMessageQ(ModBusIn), NULL);
+//	 osMessageQDef(ModBusOut, 256, uint8_t);
+//	 ModBusOutHandle = osMessageCreate(osMessageQ(ModBusOut), NULL);
+//   osThreadDef(ModBusTask, ModBusTask, osPriorityNormal, 0, 128);
+//   ModBusTaskHandle = osThreadCreate(osThread(ModBusTask), NULL);
+
+	osThreadId_t ModBusTaskHandle;
+	ModBusInHandle = osMessageQueueNew(256, sizeof(uint8_t), NULL);
+	const osThreadAttr_t modbusTaskAttr = {
+	 .name = "ModBusTask",
+	 .priority = (osPriority_t) osPriorityNormal,
+	 .stack_size = 4 * 128
+	 };
+	ModBusTaskHandle = osThreadNew(ModBusTask, NULL, &modbusTaskAttr);
+
+
   mb_buf_in_count=0;
   mb_addr=247; // by default maximum possible adrress
   mb_buf_out_count=0;
@@ -86,6 +112,7 @@ uint8_t CRC16_IN(void);
 // parse something in incoming buffer 
 void ModBusParse(void)
 {
+
     if(mb_buf_in_count==0) // call as by mistake on empty buffer?
     {
       return;
@@ -128,6 +155,7 @@ void ModBusParse(void)
           break;
         case 16: 
           // write holding registers. by bytes addr func starth startl totalh totall num_bytes regh regl ...
+        	//parameters_changed = true;
           st=mb_buf_in[2]*256+mb_buf_in[3];
           nu=mb_buf_in[4]*256+mb_buf_in[5];
           if( (st+nu) > ModBusRegisters) // dont ask more, that we has!
@@ -162,10 +190,14 @@ void ModBusParse(void)
       
      // If you want directly to USB-CDC 
      //CDC_Transmit_FS(&mb_buf_out[0], mb_buf_out_count);
+     // If you want directly to UART TX
+     HAL_UART_Transmit(&ACTIVE_UART_HANDLE, &mb_buf_out[0], mb_buf_out_count, HAL_MAX_DELAY);
+      /*
      for(int i=0;i<mb_buf_out_count;i++)
         {
           osMessagePut(ModBusOutHandle,mb_buf_out[i],0);
         }
+     */
     }
     // Ok, we parsed buffer, clean up
     mb_buf_in_count=0;
@@ -173,15 +205,15 @@ void ModBusParse(void)
 }
 
 // set value of register
-void ModBus_SetRegister(uint8_t reg,uint16_t value)
+void ModBus_SetRegister(uint16_t reg,uint16_t value)
 {
   if(reg<ModBusRegisters)
   {
     mb_reg[reg]=value;
   }
 }
-// grab value of register
-uint16_t ModBus_GetRegister(uint8_t reg)
+// grab value of register n
+uint16_t ModBus_GetRegister(uint16_t reg)
 {
   if(reg<ModBusRegisters)
   {
@@ -257,3 +289,21 @@ uint8_t CRC16_IN(void)
     }
   return 1;
 }
+
+//This is the function that the UART interrupt hits the moment it receives a byte and parses it in ModBusInHandle
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == ACTIVE_UART_INSTANCE) // Ensure this is the correct UART instance
+    {
+        // Send received byte to the FreeRTOS message queue
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        osMessageQueuePut(ModBusInHandle, &rxData, 0, 0);
+
+        // Re-enable UART reception to continue receiving data
+        HAL_UART_Receive_IT(huart, &rxData, 1);
+
+        // Notify FreeRTOS if a higher-priority task needs to run
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    }
+}
+

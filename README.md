@@ -1,3 +1,13 @@
+Originally written by Viacheslav Kaloshin and now adapted for STM32 CMSIS-RTOS2 and using UART interrupt directly.
+Supports only Modbus commands Function 3 (Read Holding Registers) and Function 16 (Write Multiple Registers).
+
+# Getting started
+1. You need to define your ACTIVE_UART_HANDLE and ACTIVE_UART_INSTANCE in main.h
+2. You need to enable NVIC global interrupt for the UART port in CubeMX.
+3. You need to enable the UART RX interrupt at the init phase as "HAL_UART_Receive_IT(&ACTIVE_UART_HANDLE, &rxData, 1);" and define a "uint8_t rxData;" in main.c
+
+To test, I recommend OpenModscan (https://github.com/sanny32/OpenModScan)
+
 # Simple MODBUS implementation for STM32 HAL & FreeRTOS
 
 Why I write my own implementation? 
