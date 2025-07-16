@@ -128,7 +128,7 @@ void ModBusParse(void)
       mb_buf_out_count = 0;
       uint16_t st,nu;
       uint8_t func = mb_buf_in[1];
-      uint8_t i;
+      uint16_t i;
       switch(func)
       {
         case 3:
