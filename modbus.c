@@ -153,6 +153,25 @@ void ModBusParse(void)
                 }
             }
           break;
+		case 6: //single register write
+            st = mb_buf_in[2] * 256 + mb_buf_in[3];      // register address
+            if (st >= ModBusRegisters) {                // out of range ?
+                mb_buf_out[mb_buf_out_count++] = mb_addr;
+                mb_buf_out[mb_buf_out_count++] = func + 0x80;
+                mb_buf_out[mb_buf_out_count++] = 2;     // exception code 2
+            }
+            else {
+                mb_reg[st] = mb_buf_in[4] * 256 + mb_buf_in[5];
+
+                // Response must echo request
+                mb_buf_out[mb_buf_out_count++] = mb_addr;
+                mb_buf_out[mb_buf_out_count++] = func;
+                mb_buf_out[mb_buf_out_count++] = mb_buf_in[2]; // register hi
+                mb_buf_out[mb_buf_out_count++] = mb_buf_in[3]; // register lo
+                mb_buf_out[mb_buf_out_count++] = mb_buf_in[4]; // value hi
+                mb_buf_out[mb_buf_out_count++] = mb_buf_in[5]; // value lo
+            }
+        	break;
         case 16: 
           // write holding registers. by bytes addr func starth startl totalh totall num_bytes regh regl ...
         	//parameters_changed = true;
