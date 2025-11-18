@@ -1,5 +1,5 @@
-Originally written by Viacheslav Kaloshin and now adapted for STM32 CMSIS-RTOS2 and using UART interrupt directly.
-Supports only Modbus commands Function 3 (Read Holding Registers) and Function 16 (Write Multiple Registers).
+Originally written by Viacheslav Kaloshin and now adapted for STM32 CMSIS-RTOS2 and using UART interrupt directly. Updated to support more than 256 addresses.
+Supports only Modbus commands Function 3 (Read Holding Registers), Function 6 (Write Single Register) and Function 16 (Write Multiple Registers).
 
 # Getting started
 1. You need to define your ACTIVE_UART_HANDLE and ACTIVE_UART_INSTANCE in main.h
